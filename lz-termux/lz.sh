@@ -48,7 +48,7 @@ show_status() {
     done
 }
 
-# ============ 此处已修复启动判断逻辑 ============
+# ============ 修复版：启动逻辑（轮询检测，防止误报） ============
 start_service() {
     local id=$1
     local svc=$(get_service "$id")
@@ -61,7 +61,7 @@ start_service() {
     
     eval "$scmd"
     
-    # 【修复】轮询检查，最多等待 5 秒（重试 10 次，每次 0.5 秒）
+    # 轮询检查，最多等待 5 秒（重试 10 次，每次 0.5 秒）
     local retries=10
     local success=0
     while [ $retries -gt 0 ]; do
@@ -79,31 +79,61 @@ start_service() {
         echo "[✘ 失败] $sname 启动失败 (端口 $sport)"
     fi
 }
-# ====================================================
+# ============================================================
 
+# ============ 修复版：停止逻辑（多重兜底强杀，防止误报） ============
 stop_service() {
     local id=$1
     local svc=$(get_service "$id")
     [ -z "$svc" ] && { echo "[错误] 无效编号: $id"; return 1; }
     IFS='|' read -r sid sname sport spattern slog scmd <<< "$svc"
+    
     if ! check_port "$sport"; then
         echo "[跳过] $sname 未在运行 (端口 $sport)"
         return 0
     fi
-    fuser -k -n tcp "$sport" 2>/dev/null
+    
+    echo ">>> 正在停止 $sname (端口 $sport) ..."
+    
+    # 方法 1: 尝试使用 fuser 强制杀死 (加上 -9 发送 SIGKILL)
+    fuser -k -9 -n tcp "$sport" 2>/dev/null
     sleep 1
+    
     if ! check_port "$sport"; then
-        echo "[✔ 成功] $sname 已停止"
-    else
-        pkill -9 -f "$spattern" 2>/dev/null
+        echo "[✔ 成功] $sname 已停止 (fuser)"
+        return 0
+    fi
+    
+    # 方法 2: 如果 fuser 失败，通过 netstat 查出占用端口的 PID 并强杀
+    local pid=$(netstat -tulnp 2>/dev/null | grep ":$sport " | awk '{print $7}' | cut -d'/' -f1 | head -n 1)
+    if [ -n "$pid" ]; then
+        kill -9 "$pid" 2>/dev/null
         sleep 1
         if ! check_port "$sport"; then
-            echo "[✔ 成功] $sname 已停止 (pkill)"
+            echo "[✔ 成功] $sname 已停止 (kill -9 PID: $pid)"
+            return 0
+        fi
+    fi
+    
+    # 方法 3: 如果以上都失败，尝试匹配 Node 进程强杀
+    pkill -9 -f "node .*index.js" 2>/dev/null
+    sleep 1
+    
+    if ! check_port "$sport"; then
+        echo "[✔ 成功] $sname 已停止 (pkill node)"
+    else
+        # 最后的尝试：如果是 PHP 或 Python，尝试全局清理
+        pkill -9 -f "python" 2>/dev/null
+        pkill -9 -f "php" 2>/dev/null
+        sleep 1
+        if ! check_port "$sport"; then
+            echo "[✔ 成功] $sname 已停止 (兜底)"
         else
-            echo "[✘ 失败] $sname 停止失败 (端口 $sport)"
+            echo "[✘ 失败] $sname 停止失败 (端口 $sport 依然被占用，可能需要重启手机或手动强杀)"
         fi
     fi
 }
+# ============================================================
 
 start_all_quick() {
     echo ">>> 快速启动：仅补启动未运行的服务..."
