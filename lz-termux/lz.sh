@@ -4,7 +4,7 @@
 # ============================================================
 
 # >>> 部署后改成你自己的 GitHub 地址 <<<
-GITHUB_URL="https://proxy.lalifeier.eu.org/https://raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/lz.sh"
+GITHUB_URL="https://tvv.tw/https://raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/lz.sh"
 
 termux-wake-lock
 LOGDIR=/storage/emulated/0/lz/logs
