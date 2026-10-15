@@ -225,39 +225,44 @@ sync_bins() {
     echo "[完成]"
 }
 
+# ============ 通用下载函数（优先 curl，备选 wget） ============
+download_file() {
+    local url="$1"
+    local out="$2"
+    if command -v curl &>/dev/null; then
+        curl -fsSL --connect-timeout 10 "$url" -o "$out" && return 0
+    fi
+    if command -v wget &>/dev/null; then
+        wget -q --timeout=10 -O "$out" "$url" && return 0
+    fi
+    return 1
+}
+
 # ============ GitHub 更新 ============
 update_script() {
     echo ">>> 当前来源: $GITHUB_URL"
     echo ">>> 正在从 GitHub 拉取最新脚本..."
     
-    # 关键修复：不用 /tmp，改用 $HOME，解决 Permission denied
     local tmpfile="$HOME/.lz-menu-new.sh"
     rm -f "$tmpfile"
     
     local success=0
+    local urls=(
+        "$GITHUB_URL"
+        "https://tvv.tw/$GITHUB_URL"
+        "https://proxy.lalifeier.eu.org/$GITHUB_URL"
+        "https://ghproxy.net/$GITHUB_URL"
+        "https://mirror.ghproxy.com/$GITHUB_URL"
+    )
     
-    # 1. 尝试原地址
-    if curl -fsSL --connect-timeout 10 "$GITHUB_URL" -o "$tmpfile"; then
-        success=1
-    else
-        echo "    [超时] 原站未响应，尝试备用公共代理..."
-        # 2. 公共代理列表（自动容灾）
-        local urls=(
-            "https://tvv.tw/$GITHUB_URL"
-            "https://proxy.lalifeier.eu.org/$GITHUB_URL"
-            "https://ghproxy.net/$GITHUB_URL"
-            "https://mirror.ghproxy.com/$GITHUB_URL"
-        )
-        for url in "${urls[@]}"; do
-            echo "    尝试: $url"
-            if curl -fsSL --connect-timeout 10 "$url" -o "$tmpfile"; then
-                success=1
-                break
-            fi
-        done
-    fi
+    for url in "${urls[@]}"; do
+        echo "    尝试: $url"
+        if download_file "$url" "$tmpfile"; then
+            success=1
+            break
+        fi
+    done
 
-    # 3. 检查下载结果
     if [ "$success" -eq 1 ] && [ -s "$tmpfile" ] && head -1 "$tmpfile" | grep -q "^#!/bin/bash"; then
         cp ~/lz-menu.sh ~/lz-menu.sh.bak
         mv "$tmpfile" ~/lz-menu.sh
@@ -320,7 +325,7 @@ if [ "$1" == "--boot" ]; then
     read -t 15 -p ">>> 15 秒内选择 [回车=立即完整启动]: " CHOICE
     echo ""
     if [ -z "$CHOICE" ]; then
-        echo ">>> 未做选择，自动完整启动全部服务..."
+        echo ">>> 未做选择，自动完整启动所有服务..."
         start_all_full
         read -p "按回车进入菜单..."
     else
