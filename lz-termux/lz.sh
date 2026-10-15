@@ -124,6 +124,7 @@ start_all_full() {
     check_install "psmisc" "killall"
     check_install "net-tools" "netstat"
     check_install "proot-distro" "proot-distro"
+    check_install "wget" "wget"
 
     if [ -d ~/lxserver/cache ] && [ ! -L ~/lxserver/cache ]; then
         mkdir -p /storage/emulated/0/lz/lx_cache
@@ -230,7 +231,8 @@ update_script() {
     echo ">>> 当前来源: $GITHUB_URL"
     echo ">>> 正在从 GitHub 拉取最新脚本..."
     local tmpfile="/tmp/lz-menu-new.sh"
-    if curl -fsSL "$GITHUB_URL" -o "$tmpfile"; then
+    # 使用 wget 下载，强制重试5次，每次超时15秒
+    if wget -t 5 -T 15 -qO "$tmpfile" "$GITHUB_URL"; then
         if [ -s "$tmpfile" ] && head -1 "$tmpfile" | grep -q "^#!/bin/bash"; then
             cp ~/lz-menu.sh ~/lz-menu.sh.bak
             mv "$tmpfile" ~/lz-menu.sh
