@@ -10,6 +10,7 @@ TARGET_DIR="$HOME/lxserver"
 LOG_FILE="$TARGET_DIR/node.log"
 AUTOSTART_TAG="lxserver_autostart"
 API_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+MENU_SCRIPT="$HOME/lx_menu.sh"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -53,13 +54,126 @@ EOF
 }
 
 setup_alias() {
-    if grep -q "alias lx=" ~/.bashrc; then
+    if [ -f "$MENU_SCRIPT" ] && grep -q "alias lx=" ~/.bashrc; then
         echo -e "${GREEN}    [✔] 快捷别名 lx 已存在${NC}"
         return
     fi
-    echo "alias lx='cd ~/lxserver && nohup node index.js --app=node2 > ~/lxserver/node.log 2>&1 &'" >> ~/.bashrc
-    echo -e "${GREEN}    [✔] 已写入快捷别名 lx 到 ~/.bashrc${NC}"
-    echo -e "${CYAN}    💡 以后重开 Termux 后输入 lx 回车即可启动服务${NC}"
+
+    cat > "$MENU_SCRIPT" << 'MENU_EOF'
+#!/bin/bash
+clear
+echo "========================================="
+echo "       🎵 LX Music Server 工具箱"
+echo "========================================="
+echo "  [1] 安装 / 更新"
+echo "  [2] 启动服务"
+echo "  [3] 停止服务"
+echo "  [4] 重启服务"
+echo "  [5] 查看状态"
+echo "  [6] 查看日志"
+echo "  [7] 卸载服务"
+echo "  [0] 退出"
+echo "========================================="
+echo "💡 提示：10 秒内无操作，将自动启动服务"
+echo "========================================="
+read -t 10 -p "请输入选项数字: " choice
+
+if [ -z "$choice" ]; then
+    echo ""
+    echo "⏰ 超时，自动启动服务..."
+    if ! pgrep -f "node index.js --app=node2" > /dev/null; then
+        termux-wake-lock
+        cd ~/lxserver && nohup node index.js --app=node2 > ~/lxserver/node.log 2>&1 &
+        sleep 2
+        echo "✅ 服务已自动启动，端口 9527。"
+    else
+        echo "✅ 服务已经在运行中。"
+    fi
+    exit 0
+fi
+
+case $choice in
+    1)
+        echo ">>> 正在从 GitHub 拉取部署脚本..."
+        bash <(curl -sL "https://proxy.lalifeier.eu.org/https://raw.githubusercontent.com/wodecodeya/deploy-hub/main/lxserver/lxmusic_deploy.sh") install
+        ;;
+    2)
+        if pgrep -f "node index.js --app=node2" > /dev/null; then
+            echo "⚠️ 服务已经在运行中。"
+        else
+            termux-wake-lock
+            cd ~/lxserver && nohup node index.js --app=node2 > ~/lxserver/node.log 2>&1 &
+            sleep 2
+            echo "✅ 服务已启动，端口 9527。"
+        fi
+        ;;
+    3)
+        pkill -f "node index.js --app=node2" 2>/dev/null
+        termux-wake-unlock 2>/dev/null
+        echo "✅ 服务已停止。"
+        ;;
+    4)
+        pkill -f "node index.js --app=node2" 2>/dev/null
+        sleep 1
+        termux-wake-lock
+        cd ~/lxserver && nohup node index.js --app=node2 > ~/lxserver/node.log 2>&1 &
+        sleep 2
+        echo "✅ 服务已重启，端口 9527。"
+        ;;
+    5)
+        if pgrep -f "node index.js --app=node2" > /dev/null; then
+            echo "✅ 运行中 (端口: 9527)"
+            ps -ef | grep "node index.js" | grep -v grep
+        else
+            echo "❌ 未运行"
+        fi
+        echo ""
+        echo ">>> 目录占用:"
+        du -sh ~/lxserver 2>/dev/null
+        ;;
+    6)
+        echo ">>> 显示最近 50 行日志 (按 Ctrl+C 退出)"
+        tail -n 50 -f ~/lxserver/node.log
+        ;;
+    7)
+        read -p "确定要卸载 LX Music Server 吗？此操作会删除所有数据，请输入 'yes' 确认: " confirm
+        if [ "$confirm" == "yes" ]; then
+            pkill -f "node index.js --app=node2" 2>/dev/null
+            rm -rf ~/lxserver
+            sed -i "/# === lxserver_autostart ===/,/# ==========================/d" ~/.bashrc
+            sed -i "/alias lx=/d" ~/.bashrc
+            rm -f ~/lx_menu.sh
+            echo "✅ 卸载完成！"
+            exit 0
+        else
+            echo "已取消卸载。"
+        fi
+        ;;
+    0)
+        exit 0
+        ;;
+    *)
+        echo "⏰ 无效输入，自动启动服务..."
+        if ! pgrep -f "node index.js --app=node2" > /dev/null; then
+            termux-wake-lock
+            cd ~/lxserver && nohup node index.js --app=node2 > ~/lxserver/node.log 2>&1 &
+            sleep 2
+            echo "✅ 服务已自动启动，端口 9527。"
+        else
+            echo "✅ 服务已经在运行中。"
+        fi
+        ;;
+esac
+MENU_EOF
+
+    chmod +x "$MENU_SCRIPT"
+
+    sed -i "/alias lx=/d" ~/.bashrc
+    echo "alias lx='bash ~/lx_menu.sh'" >> ~/.bashrc
+
+    echo -e "${GREEN}    [✔] 已生成 lx 菜单脚本和别名${NC}"
+    echo -e "${CYAN}    💡 以后重开 Termux 后输入 lx 回车即可进入菜单${NC}"
+    echo -e "${CYAN}    💡 10 秒内无操作将自动启动服务${NC}"
 }
 
 install_lxserver() {
@@ -157,9 +271,10 @@ uninstall_lxserver() {
     echo -e "${YELLOW}>>> 正在删除目录...${NC}"
     rm -rf "$TARGET_DIR"
 
-    echo -e "${YELLOW}>>> 正在清理自启配置和别名...${NC}"
+    echo -e "${YELLOW}>>> 正在清理自启配置、别名和菜单脚本...${NC}"
     sed -i "/# === ${AUTOSTART_TAG} ===/,/# ==========================/d" ~/.bashrc
     sed -i "/alias lx=/d" ~/.bashrc
+    rm -f "$MENU_SCRIPT"
 
     echo -e "${GREEN}✅ 卸载完成！${NC}"
 }
