@@ -6,7 +6,7 @@
 set -e
 
 echo ">>> 正在下载 LZ 主脚本..."
-curl -fsSL "https://tvv.tw/raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/lz.sh" -o ~/lz-menu.sh
+curl -fsSL "https://proxy.lalifeier.eu.org/https:///raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/lz.sh" -o ~/lz-menu.sh
 
 echo ">>> 正在授权并创建 lz 快捷命令..."
 chmod +x ~/lz-menu.sh
