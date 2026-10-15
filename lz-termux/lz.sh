@@ -48,6 +48,7 @@ show_status() {
     done
 }
 
+# ============ 此处已修复启动判断逻辑 ============
 start_service() {
     local id=$1
     local svc=$(get_service "$id")
@@ -57,14 +58,28 @@ start_service() {
         echo "[跳过] $sname 已在运行 (端口 $sport)"
         return 0
     fi
+    
     eval "$scmd"
-    sleep 1
-    if check_port "$sport"; then
+    
+    # 【修复】轮询检查，最多等待 5 秒（重试 10 次，每次 0.5 秒）
+    local retries=10
+    local success=0
+    while [ $retries -gt 0 ]; do
+        if check_port "$sport"; then
+            success=1
+            break
+        fi
+        sleep 0.5
+        retries=$((retries - 1))
+    done
+
+    if [ "$success" -eq 1 ]; then
         echo "[✔ 成功] $sname 已启动 (端口 $sport)"
     else
         echo "[✘ 失败] $sname 启动失败 (端口 $sport)"
     fi
 }
+# ====================================================
 
 stop_service() {
     local id=$1
@@ -230,11 +245,9 @@ download_file() {
     local url="$1"
     local out="$2"
     if command -v curl &>/dev/null; then
-        # -f 失败不写入垃圾，-L 跟随重定向，--retry 3 重试3次，--progress-bar 显示进度条
         curl -fL --retry 3 --connect-timeout 15 --progress-bar "$url" -o "$out" && return 0
     fi
     if command -v wget &>/dev/null; then
-        # --tries=3 重试3次，--progress=bar:force 强制显示进度条
         wget --tries=3 --timeout=15 --progress=bar:force -O "$out" "$url" && return 0
     fi
     return 1
