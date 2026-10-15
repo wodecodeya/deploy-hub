@@ -1,110 +1,126 @@
 #!/bin/bash
 # ============================================
-#   LX Music Server 一键部署 + 自启守护脚本 (官方默认纯净版)
-#   支持：自动获取最新版本 | 加速代理 | Termux 唤醒锁 | 开机自启
+#   LX Music Server 工具箱 (部署/卸载/管理)
+#   交互式菜单 | 自动获取最新版 | 智能防重复安装
 # ============================================
 
-echo "========================================="
-echo "      LX Music Server 一键部署脚本"
-echo "========================================="
-
-# ================== 1. 唤醒锁 ==================
-termux-wake-lock 2>/dev/null && echo "[✔] 已开启 Termux 唤醒锁 (防止CPU休眠)"
-
-# ================== 2. 变量定义 ==================
 GITHUB_REPO="XCQ0607/lxserver"
 PROXY="https://proxy.lalifeier.eu.org/"
 TARGET_DIR="$HOME/lxserver"
 LOG_FILE="$TARGET_DIR/node.log"
-
-# ================== 3. 安装基础环境 ==================
-echo ""
-echo ">>> 正在检查并安装基础依赖 (wget, unzip, nodejs)..."
-pkg update -y > /dev/null 2>&1
-pkg install wget unzip nodejs -y > /dev/null 2>&1
-
-# ================== 4. 动态获取最新版本号 ==================
-echo ""
-echo ">>> 正在查询 GitHub 最新版本..."
-LATEST_TAG=""
+AUTOSTART_TAG="lxserver_autostart"
 API_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
-RAW_API_URL="${PROXY}${API_URL}"
-LATEST_TAG=$(wget -qO- --timeout=30 "$RAW_API_URL" | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
 
-if [ -z "$LATEST_TAG" ]; then
-    echo "[!] 无法获取最新版本号，尝试直连 GitHub..."
-    LATEST_TAG=$(wget -qO- --timeout=30 "$API_URL" | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
-fi
+# 颜色定义
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
 
-if [ -z "$LATEST_TAG" ]; then
-    echo "❌ 获取最新版本号失败，请检查网络或代理。"
-    termux-wake-unlock 2>/dev/null
-    exit 1
-fi
-echo "    [✔] 当前最新版本: $LATEST_TAG"
+# ==================== 核心功能函数 ====================
 
-# ================== 5. 构造下载链接并下载 ==================
-ZIP_NAME="lx-music-sync-server-${LATEST_TAG}-server.zip"
-DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${LATEST_TAG}/${ZIP_NAME}"
-ZIP_FILE="$HOME/${ZIP_NAME}"
-
-echo ""
-echo ">>> 正在下载 $ZIP_NAME ..."
-download_pkg() {
-    echo "    [尝试1] 使用加速代理下载..."
-    if wget -q --timeout=30 -O "$ZIP_FILE" "${PROXY}${DOWNLOAD_URL}"; then
-        echo "    [✔] 加速代理下载成功！"
+check_running() {
+    if pgrep -f "node index.js --app=node2" > /dev/null; then
         return 0
+    else
+        return 1
     fi
-    echo "    [!] 加速代理失败，尝试直连 GitHub..."
-    if wget -q --timeout=60 -O "$ZIP_FILE" "$DOWNLOAD_URL"; then
-        echo "    [✔] 直连下载成功！"
-        return 0
-    fi
-    echo "    [✘] 所有下载方式均失败，请检查网络连接或 VPN。"
-    return 1
 }
-if ! download_pkg; then
-    termux-wake-unlock 2>/dev/null
-    exit 1
-fi
 
-# ================== 6. 解压 & 处理套娃目录 ==================
-echo ""
-echo ">>> 正在解压并整理目录结构..."
-rm -rf "$HOME/lxserver_temp"
-mkdir -p "$HOME/lxserver_temp"
-unzip -o "$ZIP_FILE" -d "$HOME/lxserver_temp" > /dev/null 2>&1
-PROJECT_DIR=$(find "$HOME/lxserver_temp" -name "package.json" -maxdepth 2 -exec dirname {} \; | head -n 1)
+get_latest_version() {
+    local tag=""
+    tag=$(wget -qO- --timeout=30 "${PROXY}${API_URL}" 2>/dev/null | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+    if [ -z "$tag" ]; then
+        tag=$(wget -qO- --timeout=30 "$API_URL" 2>/dev/null | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+    fi
+    echo "$tag"
+}
 
-if [ -z "$PROJECT_DIR" ]; then
-    echo "❌ 解压失败，找不到 package.json，请检查压缩包是否完整。"
-    termux-wake-unlock 2>/dev/null
-    exit 1
-fi
+get_local_version() {
+    if [ -f "$TARGET_DIR/package.json" ]; then
+        grep '"version":' "$TARGET_DIR/package.json" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/'
+    else
+        echo ""
+    fi
+}
 
-# ================== 7. 备份旧数据 & 替换目录 ==================
-if [ -d "$TARGET_DIR" ]; then
-    echo "⚠️ 发现原有 lxserver 目录，正在备份为 lxserver_old_temp ..."
-    rm -rf "$HOME/lxserver_old_temp"
-    mv "$TARGET_DIR" "$HOME/lxserver_old_temp"
-fi
-mv "$PROJECT_DIR" "$TARGET_DIR"
-rm -rf "$HOME/lxserver_temp"
+install_lxserver() {
+    echo -e "${CYAN}>>> 开始安装/更新 LX Music Server${NC}"
+    termux-wake-lock 2>/dev/null || true
 
-# ================== 8. 安装依赖 ==================
-echo ""
-echo ">>> 正在安装 Node.js 依赖（耐心等待 1-2 分钟）..."
-cd "$TARGET_DIR"
-npm install --production > /dev/null 2>&1
+    echo -e "${YELLOW}>>> 正在安装基础依赖 (wget, unzip, nodejs)...${NC}"
+    pkg update -y > /dev/null 2>&1
+    pkg install wget unzip nodejs -y > /dev/null 2>&1
 
-# ================== 9. 配置 Termux 开机自启 ==================
-echo ""
-echo ">>> 正在配置 Termux 自动启动逻辑..."
-if ! grep -q "lxserver_autostart" ~/.bashrc; then
-    cat << 'EOF' >> ~/.bashrc
+    echo -e "${YELLOW}>>> 正在查询最新版本...${NC}"
+    local LATEST_TAG=$(get_latest_version)
+    if [ -z "$LATEST_TAG" ]; then
+        echo -e "${RED}❌ 获取版本号失败，请检查网络或代理。${NC}"
+        termux-wake-unlock 2>/dev/null; return 1
+    fi
+    
+    # === 智能防重复安装逻辑 ===
+    local LOCAL_VER=$(get_local_version)
+    # 去除可能存在的 v 前缀，进行纯数字对比
+    local clean_local=$(echo "$LOCAL_VER" | sed 's/^v//')
+    local clean_latest=$(echo "$LATEST_TAG" | sed 's/^v//')
+    
+    if [ "$clean_local" == "$clean_latest" ] && [ -d "$TARGET_DIR" ]; then
+        echo -e "${YELLOW}⚠️ 检测到当前已安装最新版本: $LOCAL_VER${NC}"
+        echo -e "${YELLOW}无需重复下载。如需强制覆盖安装，请输入 y 按回车:${NC}"
+        read -r force_install
+        if [ "$force_install" != "y" ] && [ "$force_install" != "Y" ]; then
+            echo -e "${CYAN}已取消安装。${NC}"
+            termux-wake-unlock 2>/dev/null || true
+            return 0
+        fi
+        echo -e "${YELLOW}>>> 已选择强制覆盖安装，继续执行...${NC}"
+    fi
+    # ==========================
 
-# === lxserver_autostart ===
+    echo -e "${GREEN}    [✔] 最新版本: ${LATEST_TAG}${NC}"
+    local ZIP_NAME="lx-music-sync-server-${LATEST_TAG}-server.zip"
+    local DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${LATEST_TAG}/${ZIP_NAME}"
+    local ZIP_FILE="$HOME/${ZIP_NAME}"
+
+    echo -e "${YELLOW}>>> 正在下载 ${ZIP_NAME} ...${NC}"
+    if ! wget -q --timeout=30 -O "$ZIP_FILE" "${PROXY}${DOWNLOAD_URL}"; then
+        echo -e "${YELLOW}    [!] 加速代理失败，尝试直连...${NC}"
+        if ! wget -q --timeout=60 -O "$ZIP_FILE" "$DOWNLOAD_URL"; then
+            echo -e "${RED}❌ 下载失败，请检查网络。${NC}"
+            termux-wake-unlock 2>/dev/null; return 1
+        fi
+    fi
+    echo -e "${GREEN}    [✔] 下载成功${NC}"
+
+    echo -e "${YELLOW}>>> 正在解压...${NC}"
+    rm -rf "$HOME/lxserver_temp"
+    mkdir -p "$HOME/lxserver_temp"
+    unzip -o "$ZIP_FILE" -d "$HOME/lxserver_temp" > /dev/null 2>&1
+    
+    local PROJECT_DIR=$(find "$HOME/lxserver_temp" -name "package.json" -maxdepth 2 -exec dirname {} \; | head -n 1)
+    if [ -z "$PROJECT_DIR" ]; then
+        echo -e "${RED}❌ 解压失败，找不到 package.json${NC}"
+        termux-wake-unlock 2>/dev/null; return 1
+    fi
+
+    if [ -d "$TARGET_DIR" ]; then
+        echo -e "${YELLOW}    [!] 备份旧版本到 ~/lxserver_old_temp ...${NC}"
+        rm -rf "$HOME/lxserver_old_temp"
+        mv "$TARGET_DIR" "$HOME/lxserver_old_temp"
+    fi
+    mv "$PROJECT_DIR" "$TARGET_DIR"
+    rm -rf "$HOME/lxserver_temp"
+
+    echo -e "${YELLOW}>>> 正在安装依赖 (耐心等待)...${NC}"
+    cd "$TARGET_DIR" && npm install --production > /dev/null 2>&1
+
+    # 配置自启
+    if ! grep -q "$AUTOSTART_TAG" ~/.bashrc; then
+        cat << EOF >> ~/.bashrc
+
+# === ${AUTOSTART_TAG} ===
 if ! pgrep -f "node index.js --app=node2" > /dev/null; then
     echo ">>> [自启] 检测到洛雪服务未运行，正在自动启动..."
     termux-wake-lock
@@ -112,29 +128,142 @@ if ! pgrep -f "node index.js --app=node2" > /dev/null; then
 fi
 # ==========================
 EOF
-    echo "[✔] 已配置自动启动 (写入 ~/.bashrc)"
+        echo -e "${GREEN}    [✔] 已写入自启逻辑到 ~/.bashrc${NC}"
+    fi
+
+    echo -e "${YELLOW}>>> 正在启动服务...${NC}"
+    pkill -f "node index.js --app=node2" 2>/dev/null || true
+    cd "$TARGET_DIR" && nohup node index.js --app=node2 > "$LOG_FILE" 2>&1 &
+    sleep 4
+
+    if grep -q "Error" "$LOG_FILE"; then
+        echo -e "${RED}❌ 启动失败，日志如下：${NC}"
+        cat "$LOG_FILE"
+    else
+        echo -e "${GREEN}✅ 部署启动成功！服务运行在端口 9527。${NC}"
+    fi
+    termux-wake-unlock 2>/dev/null || true
+}
+
+uninstall_lxserver() {
+    echo -e "${RED}>>> 确定要卸载 LX Music Server 吗？${NC}"
+    read -p "此操作会删除所有数据，请输入 'yes' 确认: " confirm
+    if [ "$confirm" != "yes" ]; then
+        echo -e "${YELLOW}已取消卸载。${NC}"; return
+    fi
+
+    echo -e "${YELLOW}>>> 正在停止服务...${NC}"
+    pkill -f "node index.js --app=node2" 2>/dev/null || true
+    
+    echo -e "${YELLOW}>>> 正在删除目录...${NC}"
+    rm -rf "$TARGET_DIR"
+    
+    echo -e "${YELLOW}>>> 正在清理自启配置...${NC}"
+    sed -i "/# === ${AUTOSTART_TAG} ===/,/# ==========================/d" ~/.bashrc
+
+    echo -e "${GREEN}✅ 卸载完成！${NC}"
+}
+
+start_lxserver() {
+    if check_running; then
+        echo -e "${YELLOW}⚠️ 服务已经在运行中。${NC}"
+        return
+    fi
+    termux-wake-lock 2>/dev/null || true
+    cd "$TARGET_DIR" && nohup node index.js --app=node2 > "$LOG_FILE" 2>&1 &
+    sleep 2
+    if check_running; then
+        echo -e "${GREEN}✅ 服务已启动，端口 9527。${NC}"
+    else
+        echo -e "${RED}❌ 启动失败，请查看日志。${NC}"
+    fi
+}
+
+stop_lxserver() {
+    if ! check_running; then
+        echo -e "${YELLOW}⚠️ 服务没有在运行。${NC}"
+        return
+    fi
+    pkill -f "node index.js --app=node2" 2>/dev/null
+    termux-wake-unlock 2>/dev/null || true
+    echo -e "${GREEN}✅ 服务已停止。${NC}"
+}
+
+restart_lxserver() {
+    stop_lxserver
+    sleep 1
+    start_lxserver
+}
+
+view_logs() {
+    echo -e "${CYAN}>>> 显示最近 50 行日志 (按 Ctrl+C 退出)${NC}"
+    if [ -f "$LOG_FILE" ]; then
+        tail -n 50 -f "$LOG_FILE"
+    else
+        echo -e "${RED}❌ 日志文件不存在。${NC}"
+    fi
+}
+
+check_status() {
+    echo -e "${CYAN}>>> 当前服务状态：${NC}"
+    if check_running; then
+        echo -e "${GREEN}✅ 运行中 (端口: 9527)${NC}"
+        ps -ef | grep "node index.js" | grep -v grep
+    else
+        echo -e "${RED}❌ 未运行${NC}"
+    fi
+    echo ""
+    echo -e "${CYAN}>>> 目录结构：${NC}"
+    if [ -d "$TARGET_DIR" ]; then
+        du -sh "$TARGET_DIR" 2>/dev/null
+    else
+        echo -e "${RED}lxserver 目录不存在${NC}"
+    fi
+}
+
+# ==================== 交互菜单 ====================
+
+show_menu() {
+    clear
+    echo -e "${CYAN}=========================================${NC}"
+    echo -e "${CYAN}       🎵 LX Music Server 工具箱${NC}"
+    echo -e "${CYAN}=========================================${NC}"
+    echo -e "  ${GREEN}[1]${NC} 安装 / 更新"
+    echo -e "  ${GREEN}[2]${NC} 启动服务"
+    echo -e "  ${GREEN}[3]${NC} 停止服务"
+    echo -e "  ${GREEN}[4]${NC} 重启服务"
+    echo -e "  ${GREEN}[5]${NC} 查看状态"
+    echo -e "  ${GREEN}[6]${NC} 查看日志"
+    echo -e "  ${GREEN}[7]${NC} 卸载服务"
+    echo -e "  ${GREEN}[0]${NC} 退出"
+    echo -e "${CYAN}=========================================${NC}"
+    read -p "请输入选项数字: " choice
+    case $choice in
+        1) install_lxserver ;;
+        2) start_lxserver ;;
+        3) stop_lxserver ;;
+        4) restart_lxserver ;;
+        5) check_status ;;
+        6) view_logs ;;
+        7) uninstall_lxserver ;;
+        0) exit 0 ;;
+        *) echo -e "${RED}❌ 无效选项，请重新输入。${NC}"; sleep 2 ;;
+    esac
+}
+
+# 如果传参，直接执行对应函数，否则进入菜单
+if [ "$1" == "install" ]; then
+    install_lxserver
+elif [ "$1" == "uninstall" ]; then
+    uninstall_lxserver
+elif [ "$1" == "start" ]; then
+    start_lxserver
+elif [ "$1" == "stop" ]; then
+    stop_lxserver
 else
-    echo "[跳过] 自动启动配置已存在，无需重复添加"
+    while true; do
+        show_menu
+        echo ""
+        read -p "按回车键继续..." dummy
+    done
 fi
-
-# ================== 10. 启动服务 ==================
-echo ""
-echo ">>> 正在启动洛雪音乐服务..."
-killall -9 node 2>/dev/null || true
-nohup node index.js --app=node2 > "$LOG_FILE" 2>&1 &
-sleep 4
-
-# ================== 11. 检查启动状态 ==================
-echo ""
-echo ">>> 正在检查启动状态..."
-if cat "$LOG_FILE" | grep -q "Error"; then
-    echo "❌ 启动失败，日志如下："
-    cat "$LOG_FILE"
-else
-    echo "✅ 部署启动成功！服务运行在端口 9527。"
-    echo "📁 项目目录: $TARGET_DIR"
-    echo "📝 日志文件: $LOG_FILE"
-fi
-
-termux-wake-unlock 2>/dev/null && echo "[✔] 已释放 Termux 唤醒锁 (后台由 nohup 维持)"
-echo "========================================="
