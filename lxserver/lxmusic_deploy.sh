@@ -36,17 +36,17 @@ get_local_version() {
 }
 
 setup_autostart() {
-    if grep -q "$AUTOSTART_TAG" ~/.bashrc; then
-        echo -e "${GREEN}    [✔] 自启逻辑已存在${NC}"
-        return
-    fi
+    # 先删除旧的注入逻辑（因为逻辑变了，需要重写）
+    sed -i "/# === ${AUTOSTART_TAG} ===/,/# ==========================/d" ~/.bashrc
+
     cat << EOF >> ~/.bashrc
 
 # === ${AUTOSTART_TAG} ===
 if ! pgrep -f "node index.js --app=node2" > /dev/null; then
-    echo ">>> [自启] 检测到洛雪服务未运行，正在自动启动..."
-    termux-wake-lock
-    cd ~/lxserver && nohup node index.js --app=node2 > ~/lxserver/node.log 2>&1 &
+    echo ""
+    echo ">>> [自启] 检测到洛雪服务未运行，正在进入管理菜单..."
+    echo ""
+    bash ~/lx_menu.sh
 fi
 # ==========================
 EOF
@@ -198,8 +198,8 @@ install_lxserver() {
     if [ "$clean_local" == "$clean_latest" ] && [ -d "$TARGET_DIR" ]; then
         echo -e "${YELLOW}⚠️ 检测到当前已安装最新版本: $LOCAL_VER${NC}"
         echo -e "${YELLOW}>>> 跳过下载安装，检查自启和别名配置...${NC}"
-        setup_autostart
         setup_alias
+        setup_autostart
         termux-wake-unlock 2>/dev/null || true
         return 0
     fi
@@ -241,8 +241,8 @@ install_lxserver() {
     echo -e "${YELLOW}>>> 正在安装依赖 (耐心等待)...${NC}"
     cd "$TARGET_DIR" && npm install --production > /dev/null 2>&1
 
-    setup_autostart
     setup_alias
+    setup_autostart
 
     echo -e "${YELLOW}>>> 正在启动服务...${NC}"
     pkill -f "node index.js --app=node2" 2>/dev/null || true
@@ -350,7 +350,7 @@ show_menu() {
     echo -e "  ${GREEN}[7]${NC} 卸载服务"
     echo -e "  ${GREEN}[0]${NC} 退出"
     echo -e "${CYAN}=========================================${NC}"
-    echo -e "${CYAN}  💡 提示：以后重启手机后，打开 Termux 输入 lx 回车即可启动服务${NC}"
+    echo -e "${CYAN}  💡 提示：以后重启手机后，打开 Termux 输入 lx 回车即可进入菜单${NC}"
     echo -e "${CYAN}=========================================${NC}"
     read -p "请输入选项数字: " choice
     case $choice in
