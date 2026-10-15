@@ -1,35 +1,41 @@
 #!/bin/bash
-set -e
+# ============================================================
+# LZ 服务管理控制台 - 一键安装脚本 (wget 专版)
+# ============================================================
 
-URLS=(
-    "https://raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/lz.sh"
-    "https://tvv.tw/raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/lz.sh"
-    "https://proxy.lalifeier.eu.org/https://raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/lz.sh"
-)
+echo ">>> 正在检查 wget 依赖..."
+if ! command -v wget &> /dev/null; then
+    echo "[安装] wget 不存在，正在自动安装..."
+    pkg install wget -y > /dev/null 2>&1
+fi
 
 echo ">>> 正在下载 LZ 主脚本..."
-SUCCESS=0
-for url in "${URLS[@]}"; do
-    echo "    尝试: $url"
-    if curl -fsSL --connect-timeout 10 "$url" -o ~/lz-menu.sh; then
-        SUCCESS=1
-        echo "    [✔] 下载成功"
-        break
-    else
-        echo "    [✘] 该节点失败，换下一个..."
-    fi
-done
+# 尝试直连下载，如果失败会自动重试5次，每次超时15秒
+wget -t 5 -T 15 -qO ~/lz-menu.sh "https://raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/lz.sh"
 
-if [ "$SUCCESS" -eq 0 ]; then
-    echo ">>> [失败] 所有节点都无法连接，请检查网络。"
+# 如果直连失败，尝试代理下载
+if [ $? -ne 0 ]; then
+    echo ">>> 直连失败，正在切换代理..."
+    wget -t 5 -T 15 -qO ~/lz-menu.sh "https://tvv.tw/raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/lz.sh"
+fi
+
+# 检查文件是否下载成功
+if [ ! -s ~/lz-menu.sh ]; then
+    echo ">>> [失败] 下载失败，请检查网络。"
     exit 1
 fi
 
-# 后面的授权、自启动逻辑保持不变
+echo ">>> 正在授权并创建 lz 快捷命令..."
 chmod +x ~/lz-menu.sh
 ln -sf ~/lz-menu.sh $PREFIX/bin/lz
-sed -i '/LZ_MENU_STARTED/d' ~/.bashrc 2>/dev/null || true
-sed -i '/lz-menu.sh/d' ~/.bashrc 2>/dev/null || true
+
+echo ">>> 正在配置开机自启动..."
+sed -i '/LZ_MENU_STARTED/d' ~/.bashrc 2>/dev/null
+sed -i '/lz-menu.sh/d' ~/.bashrc 2>/dev/null
 printf '\n# LZ 服务管理控制台自动启动\nif [ -n "$PS1" ] && [ -z "$LZ_MENU_STARTED" ]; then\n    export LZ_MENU_STARTED=1\n    bash ~/lz-menu.sh --boot\nfi\n' >> ~/.bashrc
 
-echo "✅ 部署完成！输入 lz 即可测试。"
+echo ""
+echo "========================================="
+echo "✅ 部署完成！"
+echo "   输入 lz 测试"
+echo "========================================="
