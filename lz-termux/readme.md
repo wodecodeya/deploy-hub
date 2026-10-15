@@ -3,7 +3,7 @@
 复制下面这一行命令到 Termux 回车，所有配置自动完成：
 
 ```bash
-curl -fsSL "https://tvv.tw/raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/install.sh" | bash
+curl -fsSL "https://proxy.lalifeier.eu.org/https://raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/install.sh" | bash
 ```
 
 部署完成后：
