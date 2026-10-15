@@ -11,38 +11,55 @@ LOG_FILE="$TARGET_DIR/node.log"
 AUTOSTART_TAG="lxserver_autostart"
 API_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
 
-# 颜色定义
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# ==================== 核心功能函数 ====================
-
 check_running() {
-    if pgrep -f "node index.js --app=node2" > /dev/null; then
-        return 0
-    else
-        return 1
-    fi
+    pgrep -f "node index.js --app=node2" > /dev/null
 }
 
 get_latest_version() {
     local tag=""
     tag=$(wget -qO- --timeout=30 "${PROXY}${API_URL}" 2>/dev/null | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
-    if [ -z "$tag" ]; then
-        tag=$(wget -qO- --timeout=30 "$API_URL" 2>/dev/null | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
-    fi
+    [ -z "$tag" ] && tag=$(wget -qO- --timeout=30 "$API_URL" 2>/dev/null | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
     echo "$tag"
 }
 
 get_local_version() {
     if [ -f "$TARGET_DIR/package.json" ]; then
         grep '"version":' "$TARGET_DIR/package.json" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/'
-    else
-        echo ""
     fi
+}
+
+setup_autostart() {
+    if grep -q "$AUTOSTART_TAG" ~/.bashrc; then
+        echo -e "${GREEN}    [✔] 自启逻辑已存在${NC}"
+        return
+    fi
+    cat << EOF >> ~/.bashrc
+
+# === ${AUTOSTART_TAG} ===
+if ! pgrep -f "node index.js --app=node2" > /dev/null; then
+    echo ">>> [自启] 检测到洛雪服务未运行，正在自动启动..."
+    termux-wake-lock
+    cd ~/lxserver && nohup node index.js --app=node2 > ~/lxserver/node.log 2>&1 &
+fi
+# ==========================
+EOF
+    echo -e "${GREEN}    [✔] 已写入自启逻辑到 ~/.bashrc${NC}"
+}
+
+setup_alias() {
+    if grep -q "alias lx=" ~/.bashrc; then
+        echo -e "${GREEN}    [✔] 快捷别名 lx 已存在${NC}"
+        return
+    fi
+    echo "alias lx='cd ~/lxserver && nohup node index.js --app=node2 > ~/lxserver/node.log 2>&1 &'" >> ~/.bashrc
+    echo -e "${GREEN}    [✔] 已写入快捷别名 lx 到 ~/.bashrc${NC}"
+    echo -e "${CYAN}    💡 以后重开 Termux 后输入 lx 回车即可启动服务${NC}"
 }
 
 install_lxserver() {
@@ -59,25 +76,19 @@ install_lxserver() {
         echo -e "${RED}❌ 获取版本号失败，请检查网络或代理。${NC}"
         termux-wake-unlock 2>/dev/null; return 1
     fi
-    
-    # === 智能防重复安装逻辑 ===
+
     local LOCAL_VER=$(get_local_version)
-    # 去除可能存在的 v 前缀，进行纯数字对比
     local clean_local=$(echo "$LOCAL_VER" | sed 's/^v//')
     local clean_latest=$(echo "$LATEST_TAG" | sed 's/^v//')
-    
+
     if [ "$clean_local" == "$clean_latest" ] && [ -d "$TARGET_DIR" ]; then
         echo -e "${YELLOW}⚠️ 检测到当前已安装最新版本: $LOCAL_VER${NC}"
-        echo -e "${YELLOW}无需重复下载。如需强制覆盖安装，请输入 y 按回车:${NC}"
-        read -r force_install
-        if [ "$force_install" != "y" ] && [ "$force_install" != "Y" ]; then
-            echo -e "${CYAN}已取消安装。${NC}"
-            termux-wake-unlock 2>/dev/null || true
-            return 0
-        fi
-        echo -e "${YELLOW}>>> 已选择强制覆盖安装，继续执行...${NC}"
+        echo -e "${YELLOW}>>> 跳过下载安装，检查自启和别名配置...${NC}"
+        setup_autostart
+        setup_alias
+        termux-wake-unlock 2>/dev/null || true
+        return 0
     fi
-    # ==========================
 
     echo -e "${GREEN}    [✔] 最新版本: ${LATEST_TAG}${NC}"
     local ZIP_NAME="lx-music-sync-server-${LATEST_TAG}-server.zip"
@@ -98,7 +109,7 @@ install_lxserver() {
     rm -rf "$HOME/lxserver_temp"
     mkdir -p "$HOME/lxserver_temp"
     unzip -o "$ZIP_FILE" -d "$HOME/lxserver_temp" > /dev/null 2>&1
-    
+
     local PROJECT_DIR=$(find "$HOME/lxserver_temp" -name "package.json" -maxdepth 2 -exec dirname {} \; | head -n 1)
     if [ -z "$PROJECT_DIR" ]; then
         echo -e "${RED}❌ 解压失败，找不到 package.json${NC}"
@@ -116,20 +127,8 @@ install_lxserver() {
     echo -e "${YELLOW}>>> 正在安装依赖 (耐心等待)...${NC}"
     cd "$TARGET_DIR" && npm install --production > /dev/null 2>&1
 
-    # 配置自启
-    if ! grep -q "$AUTOSTART_TAG" ~/.bashrc; then
-        cat << EOF >> ~/.bashrc
-
-# === ${AUTOSTART_TAG} ===
-if ! pgrep -f "node index.js --app=node2" > /dev/null; then
-    echo ">>> [自启] 检测到洛雪服务未运行，正在自动启动..."
-    termux-wake-lock
-    cd ~/lxserver && nohup node index.js --app=node2 > ~/lxserver/node.log 2>&1 &
-fi
-# ==========================
-EOF
-        echo -e "${GREEN}    [✔] 已写入自启逻辑到 ~/.bashrc${NC}"
-    fi
+    setup_autostart
+    setup_alias
 
     echo -e "${YELLOW}>>> 正在启动服务...${NC}"
     pkill -f "node index.js --app=node2" 2>/dev/null || true
@@ -154,12 +153,13 @@ uninstall_lxserver() {
 
     echo -e "${YELLOW}>>> 正在停止服务...${NC}"
     pkill -f "node index.js --app=node2" 2>/dev/null || true
-    
+
     echo -e "${YELLOW}>>> 正在删除目录...${NC}"
     rm -rf "$TARGET_DIR"
-    
-    echo -e "${YELLOW}>>> 正在清理自启配置...${NC}"
+
+    echo -e "${YELLOW}>>> 正在清理自启配置和别名...${NC}"
     sed -i "/# === ${AUTOSTART_TAG} ===/,/# ==========================/d" ~/.bashrc
+    sed -i "/alias lx=/d" ~/.bashrc
 
     echo -e "${GREEN}✅ 卸载完成！${NC}"
 }
@@ -221,8 +221,6 @@ check_status() {
     fi
 }
 
-# ==================== 交互菜单 ====================
-
 show_menu() {
     clear
     echo -e "${CYAN}=========================================${NC}"
@@ -236,6 +234,8 @@ show_menu() {
     echo -e "  ${GREEN}[6]${NC} 查看日志"
     echo -e "  ${GREEN}[7]${NC} 卸载服务"
     echo -e "  ${GREEN}[0]${NC} 退出"
+    echo -e "${CYAN}=========================================${NC}"
+    echo -e "${CYAN}  💡 提示：以后重启手机后，打开 Termux 输入 lx 回车即可启动服务${NC}"
     echo -e "${CYAN}=========================================${NC}"
     read -p "请输入选项数字: " choice
     case $choice in
@@ -251,7 +251,6 @@ show_menu() {
     esac
 }
 
-# 如果传参，直接执行对应函数，否则进入菜单
 if [ "$1" == "install" ]; then
     install_lxserver
 elif [ "$1" == "uninstall" ]; then
