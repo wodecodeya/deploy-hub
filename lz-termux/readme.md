@@ -16,18 +16,18 @@
 
 ## 🚀 一键部署（Termux 终端直接执行）
 
-支持 `curl` 和 `wget` 双引擎，复制其中任意一行命令执行即可。
+复制其中任意一行命令执行即可。根据你的系统环境选择，推荐优先使用 `curl`。
 
-**使用 curl 版本（推荐）：**
+**使用 curl 版本（推荐，Termux 默认自带）：**
 
 ```bash
 curl -fsSL "https://tvv.tw/raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/install.sh" | bash
 ```
 
-**使用 wget 版本（备用）：**
+**使用 wget 版本（备用，自动安装 wget 依赖）：**
 
 ```bash
-wget -qO- "https://tvv.tw/raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/install.sh" | bash
+(command -v wget >/dev/null || pkg install wget -y) && wget -qO- "https://tvv.tw/raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/install.sh" | bash
 ```
 
 部署完成后：
