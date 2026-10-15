@@ -225,15 +225,17 @@ sync_bins() {
     echo "[完成]"
 }
 
-# ============ 通用下载函数（优先 curl，备选 wget） ============
+# ============ 通用下载函数（支持进度条 + 自动重试，优先 curl 备选 wget） ============
 download_file() {
     local url="$1"
     local out="$2"
     if command -v curl &>/dev/null; then
-        curl -fsSL --connect-timeout 10 "$url" -o "$out" && return 0
+        # -f 失败不写入垃圾，-L 跟随重定向，--retry 3 重试3次，--progress-bar 显示进度条
+        curl -fL --retry 3 --connect-timeout 15 --progress-bar "$url" -o "$out" && return 0
     fi
     if command -v wget &>/dev/null; then
-        wget -q --timeout=10 -O "$out" "$url" && return 0
+        # --tries=3 重试3次，--progress=bar:force 强制显示进度条
+        wget --tries=3 --timeout=15 --progress=bar:force -O "$out" "$url" && return 0
     fi
     return 1
 }
