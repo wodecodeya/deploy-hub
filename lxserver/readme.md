@@ -24,7 +24,7 @@ pkg install curl -y
 ### ✅ 方式一：带加速头（推荐，国内网络友好）
 
 ```bash
-bash <(curl -sL "https://proxy.lalifeier.eu.org/https://raw.githubusercontent.com/wodecodeya/deploy-hub/main/lxserver/lxmusic_deploy.sh")
+wget -O lxmusic_deploy.sh "https://proxy.lalifeier.eu.org/https://raw.githubusercontent.com/wodecodeya/deploy-hub/main/lxserver/lxmusic_deploy.sh" && bash lxmusic_deploy.sh && rm -f lxmusic_deploy.sh
 ```
 
 ### ✅ 方式二：直连 GitHub（需能正常访问 GitHub）
