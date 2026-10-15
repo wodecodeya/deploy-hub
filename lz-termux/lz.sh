@@ -3,8 +3,8 @@
 # LZ 服务管理控制台 v2.1 (合并 start.sh + 菜单 + GitHub更新)
 # ============================================================
 
-# >>> 部署后改成你自己的 GitHub 地址 <<<
-GITHUB_URL="https://tvv.tw/https://raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/lz.sh"
+# 主 GitHub 地址
+GITHUB_URL="https://raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/lz.sh"
 
 termux-wake-lock
 LOGDIR=/storage/emulated/0/lz/logs
@@ -124,7 +124,6 @@ start_all_full() {
     check_install "psmisc" "killall"
     check_install "net-tools" "netstat"
     check_install "proot-distro" "proot-distro"
-    check_install "wget" "wget"
 
     if [ -d ~/lxserver/cache ] && [ ! -L ~/lxserver/cache ]; then
         mkdir -p /storage/emulated/0/lz/lx_cache
@@ -230,22 +229,45 @@ sync_bins() {
 update_script() {
     echo ">>> 当前来源: $GITHUB_URL"
     echo ">>> 正在从 GitHub 拉取最新脚本..."
-    local tmpfile="/tmp/lz-menu-new.sh"
-    # 使用 wget 下载，强制重试5次，每次超时15秒
-    if wget -t 5 -T 15 -qO "$tmpfile" "$GITHUB_URL"; then
-        if [ -s "$tmpfile" ] && head -1 "$tmpfile" | grep -q "^#!/bin/bash"; then
-            cp ~/lz-menu.sh ~/lz-menu.sh.bak
-            mv "$tmpfile" ~/lz-menu.sh
-            chmod +x ~/lz-menu.sh
-            ln -sf ~/lz-menu.sh $PREFIX/bin/lz
-            echo "[✔ 成功] 脚本已更新，旧版备份: ~/lz-menu.sh.bak"
-            echo "         下次重进菜单或重敲 lz 生效。"
-        else
-            echo "[✘ 失败] 下载内容异常，未覆盖。"
-            rm -f "$tmpfile"
-        fi
+    
+    # 关键修复：不用 /tmp，改用 $HOME，解决 Permission denied
+    local tmpfile="$HOME/.lz-menu-new.sh"
+    rm -f "$tmpfile"
+    
+    local success=0
+    
+    # 1. 尝试原地址
+    if curl -fsSL --connect-timeout 10 "$GITHUB_URL" -o "$tmpfile"; then
+        success=1
     else
-        echo "[✘ 失败] 无法连接 GitHub，请检查网络或代理。"
+        echo "    [超时] 原站未响应，尝试备用公共代理..."
+        # 2. 公共代理列表（自动容灾）
+        local urls=(
+            "https://tvv.tw/$GITHUB_URL"
+            "https://proxy.lalifeier.eu.org/$GITHUB_URL"
+            "https://ghproxy.net/$GITHUB_URL"
+            "https://mirror.ghproxy.com/$GITHUB_URL"
+        )
+        for url in "${urls[@]}"; do
+            echo "    尝试: $url"
+            if curl -fsSL --connect-timeout 10 "$url" -o "$tmpfile"; then
+                success=1
+                break
+            fi
+        done
+    fi
+
+    # 3. 检查下载结果
+    if [ "$success" -eq 1 ] && [ -s "$tmpfile" ] && head -1 "$tmpfile" | grep -q "^#!/bin/bash"; then
+        cp ~/lz-menu.sh ~/lz-menu.sh.bak
+        mv "$tmpfile" ~/lz-menu.sh
+        chmod +x ~/lz-menu.sh
+        ln -sf ~/lz-menu.sh $PREFIX/bin/lz
+        echo "[✔ 成功] 脚本已更新，旧版备份: ~/lz-menu.sh.bak"
+        echo "         下次重进菜单或重敲 lz 生效。"
+    else
+        echo "[✘ 失败] 下载内容异常或全部节点超时，未覆盖。"
+        rm -f "$tmpfile"
     fi
     read -p "按回车返回菜单..."
 }
