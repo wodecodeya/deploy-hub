@@ -4,7 +4,7 @@
 # ============================================================
 
 # >>> 部署后改成你自己的 GitHub 地址 <<<
-GITHUB_URL="https://raw.githubusercontent.com/你的用户名/你的仓库/main/lz.sh"
+GITHUB_URL="https://tvv.tw/raw.githubusercontent.com/wodecodeya/deploy-hub/main/lz-termux/lz.sh"
 
 termux-wake-lock
 LOGDIR=/storage/emulated/0/lz/logs
@@ -301,6 +301,7 @@ if [ "$1" == "--boot" ]; then
         read -p "按回车进入菜单..."
     else
         handle_choice "$CHOICE"
+        read -p "按回车进入菜单..."
     fi
 fi
 
