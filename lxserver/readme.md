@@ -30,7 +30,7 @@ wget -O lxmusic_deploy.sh "https://proxy.lalifeier.eu.org/https://raw.githubuser
 ### ✅ 方式二：直连 GitHub（需能正常访问 GitHub）
 
 ```bash
-bash <(curl -sL "https://raw.githubusercontent.com/wodecodeya/deploy-hub/main/lxserver/lxmusic_deploy.sh")
+wget -O lxmusic_deploy.sh "https://raw.githubusercontent.com/wodecodeya/deploy-hub/main/lxserver/lxmusic_deploy.sh" && bash lxmusic_deploy.sh && rm -f lxmusic_deploy.sh
 ```
 
 ---
