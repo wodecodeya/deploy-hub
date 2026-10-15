@@ -9,4 +9,3 @@ curl -fsSL "https://tvv.tw/raw.githubusercontent.com/wodecodeya/deploy-hub/main/
 部署完成后：
 - 重启 App → 自动进入控制台（15 秒倒计时）
 - 任意终端输入 `lz` → 秒进菜单
-```
